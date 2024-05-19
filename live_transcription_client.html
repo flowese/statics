@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Real-Time Translation</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #1e1e2f;
+            color: #fff;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .toolbar {
+            width: 90%;
+            max-width: 1200px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 20px 0 10px 0;
+            background: #2c2c3e;
+            z-index: 1000;
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            box-sizing: border-box;
+        }
+        .toolbar h1 {
+            font-size: 1.8em;
+            color: #61dafb;
+            margin: 0;
+        }
+        .toolbar .buttons {
+            display: flex;
+            gap: 10px;
+        }
+        .toolbar button {
+            padding: 10px;
+            background-color: #61dafb;
+            color: #1c1e22;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            display: flex;
+            align-items: center;
+            transition: background-color 0.3s;
+        }
+        .toolbar button i {
+            margin-right: 5px;
+        }
+        .toolbar button:hover {
+            background-color: #21a1f1;
+        }
+        .toolbar button.active {
+            background-color: #21a1f1;
+        }
+        .statistics-container {
+            width: 90%;
+            max-width: 1200px;
+            height: 40%;
+            background: #2c2c3e;
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-sizing: border-box;
+        }
+        .container {
+            width: 90%;
+            max-width: 1200px;
+            background: #2c2c3e;
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            overflow-y: auto;
+            height: 50%;
+            position: relative;
+            padding-bottom: 50px;
+            padding-top: 10px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        .translation {
+            font-size: 1.2em;
+            line-height: 1.5;
+            transition: all 0.3s ease-in-out;
+        }
+        .translation div {
+            margin-bottom: 10px;
+        }
+        .translation .typed-container:last-child {
+            margin-bottom: 5px;
+        }
+        .speaker {
+            font-weight: bold;
+            color: #61dafb;
+        }
+        .dark-mode {
+            background-color: #1e1e2f;
+            color: #fff;
+        }
+        .light-mode {
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .light-mode .toolbar {
+            background: #e0e0e0;
+            color: #333;
+        }
+        .light-mode .toolbar h1 {
+            color: #333;
+        }
+        .light-mode .container {
+            background: #e0e0e0;
+            color: #333;
+        }
+        .light-mode .statistics-container {
+            background: #e0e0e0;
+            color: #333;
+        }
+        .light-mode .speaker {
+            color: #007acc;
+        }
+        .container::-webkit-scrollbar {
+            width: 0px;
+        }
+        .word-count {
+            font-size: 0.9em;
+            margin-top: 0;
+            padding-top: 5px;
+            color: #61dafb;
+            text-align: center;
+        }
+        .light-mode .word-count {
+            color: #007acc;
+        }
+        @media (max-width: 768px) {
+            .toolbar h1 {
+                font-size: 1.4em;
+            }
+            .toolbar button {
+                font-size: 0.9em;
+                padding: 8px;
+            }
+            .statistics-container {
+                height: 50%;
+            }
+            .container {
+                height: 45%;
+            }
+            .word-count {
+                font-size: 1.2em;
+            }
+        }
+        @media (orientation: landscape) and (max-width: 768px) {
+            .statistics-container {
+                height: 60%;
+            }
+            .container {
+                height: 35%;
+            }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/typed.js@2.0.12"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            // Determine WebSocket protocol
+            const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            const socket = new WebSocket(`${protocol}${location.host}/ws`);
+
+            const translationDiv = document.getElementById('translation');
+            const container = document.querySelector('.container');
+            const statsButton = document.getElementById('stats-button');
+            const statisticsContainer = document.getElementById('statistics-container');
+            const statisticsImage = document.getElementById('statistics');
+            const wordCountDiv = document.getElementById('word-count');
+            const pauseButton = document.getElementById('pause-button');
+            const modeButton = document.getElementById('mode-button');
+            const exportButton = document.getElementById('export-button');
+            const clearButton = document.getElementById('clear-button');
+            const body = document.body;
+
+            let isPaused = false;
+            let queue = [];
+            let typing = false;
+
+            // Load settings from localStorage
+            if (localStorage.getItem('mode') === 'light') {
+                body.classList.add('light-mode');
+                body.classList.remove('dark-mode');
+                modeButton.innerHTML = '<i class="fas fa-moon"></i> Dark Mode';
+            } else {
+                body.classList.add('dark-mode');
+                body.classList.remove('light-mode');
+                modeButton.innerHTML = '<i class="fas fa-sun"></i> Light Mode';
+            }
+
+            if (localStorage.getItem('stats') === 'open') {
+                statisticsContainer.style.display = 'block';
+                statsButton.innerHTML = '<i class="fas fa-chart-bar"></i> Hide Statistics';
+                updateStatistics();
+            } else {
+                statisticsContainer.style.display = 'none';
+                statsButton.innerHTML = '<i class="fas fa-chart-bar"></i> View Statistics';
+            }
+
+            pauseButton.addEventListener('click', function() {
+                isPaused = !isPaused;
+                pauseButton.classList.toggle('active', isPaused);
+                pauseButton.innerHTML = isPaused ? '<i class="fas fa-play"></i> Enable Auto-Scroll' : '<i class="fas fa-pause"></i> Disable Auto-Scroll';
+                container.style.overflowY = isPaused ? 'auto' : 'hidden';
+            });
+
+            modeButton.addEventListener('click', function() {
+                const isDarkMode = body.classList.toggle('light-mode');
+                body.classList.toggle('dark-mode', !isDarkMode);
+                modeButton.innerHTML = isDarkMode ? '<i class="fas fa-moon"></i> Dark Mode' : '<i class="fas fa-sun"></i> Light Mode';
+                localStorage.setItem('mode', isDarkMode ? 'light' : 'dark');
+                updateStatistics();
+            });
+
+            statsButton.addEventListener('click', function() {
+                const statsVisible = statisticsContainer.style.display === 'block';
+                statisticsContainer.style.display = statsVisible ? 'none' : 'block';
+                statsButton.innerHTML = statsVisible ? '<i class="fas fa-chart-bar"></i> View Statistics' : '<i class="fas fa-chart-bar"></i> Hide Statistics';
+                localStorage.setItem('stats', statsVisible ? 'closed' : 'open');
+                if (!statsVisible) {
+                    updateStatistics();
+                }
+            });
+
+            exportButton.addEventListener('click', function() {
+                const element = document.createElement('a');
+                const text = translationDiv.innerText;
+                const file = new Blob([text], {type: 'text/plain'});
+                element.href = URL.createObjectURL(file);
+                element.download = 'transcriptions.txt';
+                document.body.appendChild(element);
+                element.click();
+                document.body.removeChild(element);
+            });
+
+            clearButton.addEventListener('click', function() {
+                socket.send('clear_history');
+            });
+
+            function updateStatistics() {
+                const mode = body.classList.contains('dark-mode') ? 'dark' : 'light';
+                fetch(`/statistics?mode=${mode}`)
+                    .then(response => response.blob())
+                    .then(blob => {
+                        const url = URL.createObjectURL(blob);
+                        statisticsImage.src = url;
+                    })
+                    .catch(error => console.error('Error updating statistics:', error));
+            }
+
+            function updateWordCount(count) {
+                wordCountDiv.textContent = `Total Words: ${count}`;
+            }
+
+            function processQueue() {
+                if (queue.length === 0 || typing) {
+                    return;
+                }
+
+                typing = true;
+                const data = queue.shift();
+
+                const finalLine = document.createElement('div');
+                finalLine.classList.add('typed-container', 'animate__animated', 'animate__fadeIn');
+
+                translationDiv.appendChild(finalLine);
+
+                if (!isPaused) {
+                    setTimeout(() => {
+                        container.scrollTop = container.scrollHeight;
+                    }, 50);
+                }
+
+                const typed = new Typed(finalLine, {
+                    strings: [`<span class="speaker">${data.speaker}:</span> ${data.text}`],
+                    typeSpeed: 10,
+                    showCursor: false,
+                    onComplete: function() {
+                        typing = false;
+                        processQueue();
+                    }
+                });
+            }
+
+            socket.onopen = function() {
+                console.log("Connected to the server");
+                socket.send('request_history');
+            };
+
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.history) {
+                    const finalLine = document.createElement('div');
+                    finalLine.classList.add('typed-container', 'animate__animated', 'animate__fadeIn');
+                    finalLine.innerHTML = `<span class="speaker">${data.speaker}:</span> ${data.text}`;
+                    translationDiv.appendChild(finalLine);
+                    if (!isPaused) {
+                        setTimeout(() => {
+                            container.scrollTop = container.scrollHeight;
+                        }, 50);
+                    }
+                } else if (data.clear_history) {
+                    translationDiv.innerHTML = '';
+                } else if (data.total_word_count !== undefined) {
+                    updateWordCount(data.total_word_count);
+                } else {
+                    queue.push(data);
+                    processQueue();
+                }
+                updateStatistics();
+            };
+
+            socket.onerror = function(error) {
+                console.error("WebSocket Error:", error);
+            };
+
+            socket.onclose = function() {
+                console.log("WebSocket connection closed");
+            };
+
+            container.style.overflowY = 'hidden';
+        });
+    </script>
+</head>
+<body class="dark-mode">
+    <div class="toolbar">
+        <h1>Real-Time Translation</h1>
+        <div class="buttons">
+            <button id="mode-button"><i class="fas fa-sun"></i> Light Mode</button>
+            <button id="pause-button"><i class="fas fa-pause"></i> Disable Auto-Scroll</button>
+            <button id="export-button"><i class="fas fa-download"></i> Export Transcriptions</button>
+            <button id="stats-button"><i class="fas fa-chart-bar"></i> View Statistics</button>
+            <button id="clear-button"><i class="fas fa-trash"></i> Clear History</button>
+        </div>
+    </div>
+    <div id="statistics-container" class="statistics-container">
+        <img id="statistics" src="" alt="Word Cloud" style="width: 100%; border-radius: 10px; height: auto; max-height: 90%;">
+        <div id="word-count" class="word-count" style="margin-top: 0; padding-top: 5px;">Total Words: 0</div>
+    </div>
+    <div class="container">
+        <div id="translation" class="translation"></div>
+    </div>
+</body>
+</html>
